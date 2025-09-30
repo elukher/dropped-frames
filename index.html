@@ -6,6 +6,7 @@
     <title>QA Jank & Frames Dashboard</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
       * {
         margin: 0;
@@ -235,6 +236,32 @@
         height: 450px;
         width: 100%;
       }
+
+      .export-button {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        padding: 15px 30px;
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: white;
+        border: none;
+        border-radius: 50px;
+        font-size: 1em;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 5px 20px rgba(16, 185, 129, 0.4);
+        transition: all 0.3s ease;
+        z-index: 1000;
+      }
+      .export-button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px rgba(16, 185, 129, 0.5);
+      }
+      .export-button:disabled {
+        background: #555;
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
     </style>
   </head>
   <body>
@@ -247,7 +274,13 @@
       <!-- Upload -->
       <div class="file-upload-section">
         <h3>📊 Load Jank Data</h3>
-        <p style="color: rgba(255, 255, 255, 0.6); margin-bottom: 20px; margin-top: 10px;">
+        <p
+          style="
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 20px;
+            margin-top: 10px;
+          "
+        >
           Upload TSVs to analyze
         </p>
         <div class="file-buttons">
@@ -324,6 +357,10 @@
       </div>
     </div>
 
+    <button id="exportPdfBtn" class="export-button" disabled>
+      📄 Export to PDF
+    </button>
+
     <script>
       let charts = {};
 
@@ -364,6 +401,7 @@
               drawDroppedChart(results.data);
               updateDroppedKPI(results.data);
             }
+            enableExportButton();
             document.getElementById(
               "fileStatus"
             ).textContent = `✓ Loaded ${file.name}`;
@@ -531,6 +569,108 @@
           },
         });
       }
+
+      function enableExportButton() {
+        const btn = document.getElementById("exportPdfBtn");
+
+        // Enable if at least one data/chart is present
+        if (
+          summaryData.length > 0 ||
+          charts.timeline ||
+          charts.types ||
+          charts.dropped
+        ) {
+          btn.disabled = false;
+        }
+      }
+
+      async function exportToPDF() {
+        const btn = document.getElementById("exportPdfBtn");
+        btn.disabled = true;
+        btn.textContent = "⏳ Generating PDF...";
+
+        try {
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF("p", "mm", "a4");
+          let yPos = 20;
+
+          pdf.setFontSize(20);
+          pdf.setTextColor(102, 126, 234);
+          pdf.text("QA Jank & Frames Report", 105, yPos, { align: "center" });
+          yPos += 15;
+
+          // KPIs
+          pdf.setFontSize(12);
+          pdf.setTextColor(0, 0, 0);
+          pdf.text(
+            `Jank %: ${document.getElementById("kpiJank").textContent}`,
+            15,
+            yPos
+          );
+          yPos += 7;
+          pdf.text(
+            `Dropped Frames %: ${
+              document.getElementById("kpiDropped").textContent
+            }`,
+            15,
+            yPos
+          );
+          yPos += 7;
+          pdf.text(
+            `Top Jank Type: ${
+              document.getElementById("kpiTopType").textContent
+            }`,
+            15,
+            yPos
+          );
+          yPos += 12;
+
+          // Charts
+          await addChartToPDF(pdf, "summaryChart", "Summary by Layer", yPos);
+          pdf.addPage();
+          await addChartToPDF(pdf, "timelineChart", "Jank % Timeline", 20);
+          pdf.addPage();
+          await addChartToPDF(pdf, "typesChart", "Jank Types", 20);
+          pdf.addPage();
+          await addChartToPDF(pdf, "droppedChart", "Dropped Frames", 20);
+
+          // Save file
+          const timestamp = new Date()
+            .toISOString()
+            .slice(0, 19)
+            .replace(/:/g, "-");
+          pdf.save(`QA-Jank-Frames-Report-${timestamp}.pdf`);
+
+          btn.textContent = "✓ PDF Exported!";
+          setTimeout(() => {
+            btn.textContent = "📄 Export to PDF";
+            btn.disabled = false;
+          }, 2000);
+        } catch (err) {
+          console.error("PDF generation error:", err);
+          btn.textContent = "❌ Export Failed";
+          setTimeout(() => {
+            btn.textContent = "📄 Export to PDF";
+            btn.disabled = false;
+          }, 2000);
+        }
+      }
+
+      async function addChartToPDF(pdf, chartId, title, startY) {
+        pdf.setFontSize(14);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(title, 105, startY, { align: "center" });
+
+        const chartEl = document.getElementById(chartId);
+        if (!chartEl) return;
+        const imgData = chartEl.toDataURL("image/png");
+        pdf.addImage(imgData, "PNG", 15, startY + 10, 180, 100);
+      }
+
+      // Listener
+      document
+        .getElementById("exportPdfBtn")
+        .addEventListener("click", exportToPDF);
     </script>
   </body>
 </html>

@@ -281,21 +281,13 @@
             margin-top: 10px;
           "
         >
-          Upload TSVs to analyze
+          Upload the unified TSV file to analyze
         </p>
         <div class="file-buttons">
-          <label for="summaryFile" class="file-input-label">Summary TSV</label>
-          <input type="file" id="summaryFile" accept=".tsv,.csv,.txt" />
-          <label for="timelineFile" class="file-input-label"
-            >Timeline TSV</label
+          <label for="dataFile" class="file-input-label"
+            >📂 Load Data TSV</label
           >
-          <input type="file" id="timelineFile" accept=".tsv,.csv,.txt" />
-          <label for="typesFile" class="file-input-label">Jank Types TSV</label>
-          <input type="file" id="typesFile" accept=".tsv,.csv,.txt" />
-          <label for="droppedFile" class="file-input-label"
-            >Dropped Frames TSV</label
-          >
-          <input type="file" id="droppedFile" accept=".tsv,.csv,.txt" />
+          <input type="file" id="dataFile" accept=".tsv,.csv,.txt" />
         </div>
         <div
           id="fileStatus"
@@ -365,17 +357,8 @@
       let charts = {};
 
       document
-        .getElementById("summaryFile")
-        .addEventListener("change", (e) => loadFile(e, "summary"));
-      document
-        .getElementById("timelineFile")
-        .addEventListener("change", (e) => loadFile(e, "timeline"));
-      document
-        .getElementById("typesFile")
-        .addEventListener("change", (e) => loadFile(e, "types"));
-      document
-        .getElementById("droppedFile")
-        .addEventListener("change", (e) => loadFile(e, "dropped"));
+        .getElementById("dataFile")
+        .addEventListener("change", (e) => loadUnifiedFile(e));
 
       let summaryData = []; // store summary globally so we can reuse
 
@@ -401,6 +384,46 @@
               drawDroppedChart(results.data);
               updateDroppedKPI(results.data);
             }
+            enableExportButton();
+            document.getElementById(
+              "fileStatus"
+            ).textContent = `✓ Loaded ${file.name}`;
+          },
+          header: true,
+          delimiter: "\t",
+          skipEmptyLines: true,
+          dynamicTyping: true,
+        });
+      }
+
+      function loadUnifiedFile(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        document.getElementById(
+          "fileStatus"
+        ).textContent = `Loading ${file.name}...`;
+
+        Papa.parse(file, {
+          complete: (results) => {
+            const rows = results.data;
+
+            // split rows by data_type
+            const summary = rows.filter((r) => r.data_type === "summary");
+            const timeline = rows.filter((r) => r.data_type === "timeline");
+            const types = rows.filter((r) => r.data_type === "jank_types");
+            const dropped = rows.filter((r) => r.data_type === "dropped");
+
+            summaryData = summary; // store globally for KPIs
+            drawSummaryChart(summary);
+            updateJankKPI(summary);
+
+            drawTimelineChart(timeline);
+            drawTypesChart(types);
+            updateTopTypeKPI(types);
+
+            drawDroppedChart(dropped);
+            updateDroppedKPI(dropped);
+
             enableExportButton();
             document.getElementById(
               "fileStatus"
@@ -476,9 +499,12 @@
 
       function updateTopTypeKPI(data) {
         if (!data.length) return;
+
+        // FIX: use dropped_frames (where the count is stored from SQL UNION)
         const sorted = [...data].sort(
-          (a, b) => (b.count || 0) - (a.count || 0)
+          (a, b) => (b.dropped_frames || 0) - (a.dropped_frames || 0)
         );
+
         document.getElementById("kpiTopType").textContent =
           sorted[0].jank_type || "Unknown";
       }
@@ -530,7 +556,9 @@
       }
       function drawTypesChart(data) {
         const labels = data.map((r) => r.jank_type || "Unknown");
-        const values = data.map((r) => r.count || 0);
+        // FIX: use dropped_frames, since that's where the count ends up in the UNION
+        const values = data.map((r) => r.dropped_frames || 0);
+
         if (charts.types) charts.types.destroy();
         charts.types = new Chart(document.getElementById("typesChart"), {
           type: "bar",
@@ -540,9 +568,18 @@
               { label: "Count", data: values, backgroundColor: "#60a5fa" },
             ],
           },
-          options: { responsive: true },
+          options: {
+            responsive: true,
+            scales: {
+              x: {
+                ticks: { autoSkip: false, maxRotation: 45, minRotation: 45 },
+              },
+              y: { beginAtZero: true },
+            },
+          },
         });
       }
+
       function drawDroppedChart(data) {
         const grouped = {};
         data.forEach((r) => {
